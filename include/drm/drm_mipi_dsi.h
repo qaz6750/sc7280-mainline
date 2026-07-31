@@ -338,6 +338,8 @@ int mipi_dsi_dcs_write_buffer_chatty(struct mipi_dsi_device *dsi,
 				     const void *data, size_t len);
 void mipi_dsi_dcs_write_buffer_multi(struct mipi_dsi_multi_context *ctx,
 				     const void *data, size_t len);
+void mipi_dsi_dcs_write_buffer_long_multi(struct mipi_dsi_multi_context *ctx,
+					  const void *data, size_t len);
 void mipi_dsi_dual_dcs_write_buffer_multi(struct mipi_dsi_multi_context *ctx,
 					  struct mipi_dsi_device *dsi1,
 					  struct mipi_dsi_device *dsi2,

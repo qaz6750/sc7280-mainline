@@ -1004,6 +1004,44 @@ void mipi_dsi_dcs_write_buffer_multi(struct mipi_dsi_multi_context *ctx,
 EXPORT_SYMBOL(mipi_dsi_dcs_write_buffer_multi);
 
 /**
+ * mipi_dsi_dcs_write_buffer_long_multi - transmit a DCS long write packet
+ * @ctx: Context for multiple DSI transactions
+ * @data: buffer containing data to be transmitted
+ * @len: size of transmission buffer
+ *
+ * Unlike mipi_dsi_dcs_write_buffer_multi(), this function always uses a DCS
+ * long write packet, including when the payload would fit in a short packet.
+ */
+void mipi_dsi_dcs_write_buffer_long_multi(struct mipi_dsi_multi_context *ctx,
+					  const void *data, size_t len)
+{
+	struct mipi_dsi_device *dsi = ctx->dsi;
+	struct mipi_dsi_msg msg = {
+		.channel = dsi->channel,
+		.type = MIPI_DSI_DCS_LONG_WRITE,
+		.tx_buf = data,
+		.tx_len = len,
+	};
+	ssize_t ret;
+
+	if (ctx->accum_err)
+		return;
+
+	if (!len) {
+		ctx->accum_err = -EINVAL;
+		return;
+	}
+
+	ret = mipi_dsi_device_transfer(dsi, &msg);
+	if (ret < 0) {
+		dev_err(&dsi->dev, "sending long dcs data %*ph failed: %zd\n",
+			(int)len, data, ret);
+		ctx->accum_err = ret;
+	}
+}
+EXPORT_SYMBOL(mipi_dsi_dcs_write_buffer_long_multi);
+
+/**
  * mipi_dsi_dual_dcs_write_buffer_multi - mipi_dsi_dcs_write_buffer_multi() for
  * two dsi channels, one after the other
  * @ctx: Context for multiple DSI transactions

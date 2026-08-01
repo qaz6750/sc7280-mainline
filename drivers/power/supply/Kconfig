@@ -240,6 +240,14 @@ config BATTERY_S2MU005
 
 	  This driver, if built as a module, will be called s2mu005-fuel-gauge.
 
+config BATTERY_SM5714
+	tristate "Silicon Mitus SM5714 fuel gauge driver"
+	depends on MFD_SM5714
+	help
+	  Say Y to enable support for the fuel gauge in the Silicon Mitus
+	  SM5714. The driver reports battery capacity, voltage, current and
+	  temperature through the power supply subsystem.
+
 config BATTERY_COLLIE
 	tristate "Sharp SL-5500 (collie) battery"
 	depends on SA1100_COLLIE && MCP_UCB1200
@@ -920,6 +928,15 @@ config CHARGER_RT5033
 	  This adds support for battery charger in Richtek RT5033 PMIC.
 	  The device supports pre-charge mode, fast charge mode and
 	  constant voltage mode.
+
+config CHARGER_SM5714
+	tristate "Silicon Mitus SM5714 battery charger driver"
+	depends on MFD_SM5714
+	depends on REGULATOR
+	help
+	  Say Y to enable support for the switching charger in the Silicon
+	  Mitus SM5714. The driver reports charger state and allows current
+	  and voltage limits to be configured through the power supply API.
 
 config CHARGER_RT9455
 	tristate "Richtek RT9455 battery charger driver"

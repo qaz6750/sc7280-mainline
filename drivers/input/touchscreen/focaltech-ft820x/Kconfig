@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config TOUCHSCREEN_FOCALTECH_FT820X
+	tristate "FocalTech FT820x touchscreen"
+	depends on SPI
+	select CRC_CCITT
+	help
+	  Say Y here to enable support for FocalTech FT820x touchscreen
+	  controllers connected over SPI, including the FT8203.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called focaltech-ft820x.
+
+config TOUCHSCREEN_FOCALTECH_FT820X_FW_DOWNLOAD
+	bool "Build FT820x RAM firmware download support"
+	depends on TOUCHSCREEN_FOCALTECH_FT820X=y
+	default n
+	help
+	  Build the low-level ROM boot and RAM firmware download routines used
+	  by FT820x controllers. This option does not add a userspace interface
+	  and the touchscreen driver never invokes the routines during probe,
+	  resume, interrupt recovery, or normal operation.
+
+	  Say N unless a separate, explicit firmware update interface needs
+	  these routines.

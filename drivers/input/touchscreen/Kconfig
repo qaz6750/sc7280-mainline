@@ -1414,5 +1414,6 @@ config TOUCHSCREEN_HIMAX_HX83112B
 
 source "drivers/input/touchscreen/focaltech_touch/Kconfig"
 source "drivers/input/touchscreen/focaltech_touch_ft3658u/Kconfig"
+source "drivers/input/touchscreen/focaltech-ft820x/Kconfig"
 
 endif

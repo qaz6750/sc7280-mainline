@@ -1042,6 +1042,7 @@ properties:
       - items:
           - enum:
               - nothing,spacewar
+              - samsung,gts7fewifi
               - xiaomi,taoyao
           - const: qcom,sm7325
 

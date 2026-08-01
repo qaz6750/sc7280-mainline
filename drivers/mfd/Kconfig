@@ -1352,6 +1352,16 @@ config MFD_RT5033
 	  sub-devices like charger, fuel gauge, flash LED, current source,
 	  LDO and Buck.
 
+config MFD_SM5714
+	tristate "Silicon Mitus SM5714 Power Management IC"
+	depends on I2C
+	select MFD_CORE
+	select REGMAP_I2C
+	help
+	  Enable support for the Silicon Mitus SM5714 multi-function device.
+	  The device provides a switching charger, fuel gauge and MUIC using
+	  multiple fixed I2C addresses.
+
 config MFD_RT5120
 	tristate "Richtek RT5120 Power Management IC"
 	depends on I2C

@@ -555,6 +555,7 @@
 		interrupt-parent = <&tlmm>;
 		interrupts = <81 IRQ_TYPE_EDGE_FALLING>;
 		reset-gpios = <&tlmm 50 GPIO_ACTIVE_LOW>;
+		firmware-name = "focaltech/ft8203_gts7xllite.bin";
 		pinctrl-0 = <&ft8203_irq>, <&ft8203_reset>;
 		pinctrl-names = "default";
 

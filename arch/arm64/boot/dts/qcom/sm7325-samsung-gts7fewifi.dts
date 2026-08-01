@@ -541,6 +541,28 @@
 	status = "okay";
 };
 
+&spi14 {
+	cs-gpios = <0>, <&tlmm 59 GPIO_ACTIVE_LOW>;
+	pinctrl-0 = <&qup_spi14_data_clk>, <&qup_spi14_cs_gpio>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	touchscreen@1 {
+		compatible = "focaltech,ft8203";
+		reg = <1>;
+		spi-max-frequency = <6000000>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <81 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&tlmm 50 GPIO_ACTIVE_LOW>;
+		pinctrl-0 = <&ft8203_irq>, <&ft8203_reset>;
+		pinctrl-names = "default";
+
+		touchscreen-size-x = <1600>;
+		touchscreen-size-y = <2560>;
+	};
+};
+
 &gpi_dma0 {
 	status = "okay";
 };
@@ -565,6 +587,19 @@
 	status = "okay";
 };
 &tlmm {
+	ft8203_irq: ft8203-irq-state {
+		pins = "gpio81";
+		function = "gpio";
+		input-enable;
+		bias-pull-up;
+	};
+
+	ft8203_reset: ft8203-reset-state {
+		pins = "gpio50";
+		function = "gpio";
+		bias-disable;
+	};
+
 	panel_buck_en_state: panel-buck-en-state {
 		pins = "gpio96";
 		function = "gpio";

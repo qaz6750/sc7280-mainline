@@ -527,6 +527,8 @@ struct gpi_desc {
 	struct gchan *gchan;
 	struct gpi_tre tre[MAX_TRE];
 	u32 num_tre;
+	/* TREs are linked to the paired channel and raise no event of their own */
+	bool linked;
 };
 
 static const u32 GPII_CHAN_DIR[MAX_CHANNELS_PER_GPII] = {
@@ -992,6 +994,42 @@ gpi_free_desc:
 	gpi_desc = NULL;
 }
 
+/*
+ * An I2C read programs a GO TRE on the TX channel that is linked to the RX
+ * channel, so the transfer only ever completes with an event carrying the RX
+ * channel id.  Retire the TX descriptor here, otherwise its TREs are never
+ * reclaimed and the TX ring runs out of space after a few dozen reads.
+ */
+static void gpi_retire_linked_desc(struct gpii *gpii)
+{
+	struct gchan *gchan = &gpii->gchan[GPI_TX_CHAN];
+	struct virt_dma_desc *vd;
+	struct gpi_desc *gpi_desc;
+	unsigned long flags;
+
+	spin_lock_irqsave(&gchan->vc.lock, flags);
+	vd = vchan_next_desc(&gchan->vc);
+	if (!vd) {
+		spin_unlock_irqrestore(&gchan->vc.lock, flags);
+		return;
+	}
+
+	gpi_desc = to_gpi_desc(vd);
+	if (!gpi_desc->linked) {
+		spin_unlock_irqrestore(&gchan->vc.lock, flags);
+		return;
+	}
+
+	list_del(&vd->node);
+	spin_unlock_irqrestore(&gchan->vc.lock, flags);
+
+	/* db points just past the last TRE the descriptor queued */
+	gchan->ch_ring.rp = gpi_desc->db;
+	smp_wmb();
+
+	kfree(gpi_desc);
+}
+
 /* processing transfer completion events */
 static void gpi_process_xfer_compl_event(struct gchan *gchan,
 					 struct xfer_compl_event *compl_event)
@@ -1011,6 +1049,9 @@ static void gpi_process_xfer_compl_event(struct gchan *gchan,
 			TO_GPI_PM_STR(gchan->pm_state));
 		return;
 	}
+
+	if (gchan->protocol == QCOM_GPI_I2C && gchan->chid == GPI_RX_CHAN)
+		gpi_retire_linked_desc(gpii);
 
 	spin_lock_irqsave(&gchan->vc.lock, flags);
 	vd = vchan_next_desc(&gchan->vc);
@@ -1844,7 +1885,10 @@ gpi_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 	if (gchan->protocol == QCOM_GPI_SPI) {
 		i = gpi_create_spi_tre(gchan, gpi_desc, sgl, direction);
 	} else if (gchan->protocol == QCOM_GPI_I2C) {
+		struct gpi_i2c_config *i2c = gchan->config;
+
 		i = gpi_create_i2c_tre(gchan, gpi_desc, sgl, direction, flags);
+		gpi_desc->linked = i2c->op == I2C_WRITE && i2c->multi_msg;
 	} else {
 		dev_err(dev, "invalid peripheral: %d\n", gchan->protocol);
 		kfree(gpi_desc);

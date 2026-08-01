@@ -12,14 +12,13 @@ config TOUCHSCREEN_FOCALTECH_FT820X
 	  will be called focaltech-ft820x.
 
 config TOUCHSCREEN_FOCALTECH_FT820X_FW_DOWNLOAD
-	bool "Build FT820x RAM firmware download support"
+	bool "FT820x RAM firmware download support"
 	depends on TOUCHSCREEN_FOCALTECH_FT820X=y
 	default n
 	help
-	  Build the low-level ROM boot and RAM firmware download routines used
-	  by FT820x controllers. This option does not add a userspace interface
-	  and the touchscreen driver never invokes the routines during probe,
-	  resume, interrupt recovery, or normal operation.
+	  Build support for loading the volatile application firmware required
+	  by some FT820x controllers from the firmware loader during probe and
+	  after a power cycle. This does not provide a flash update or factory
+	  test interface.
 
-	  Say N unless a separate, explicit firmware update interface needs
-	  these routines.
+	  The firmware name is specified by the firmware-name device property.

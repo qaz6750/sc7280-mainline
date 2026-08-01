@@ -18,6 +18,7 @@ struct ft820x_data {
 	struct spi_device *spi;
 	struct input_dev *input;
 	struct gpio_desc *reset_gpio;
+	const char *firmware_name;
 	struct touchscreen_properties prop;
 	/* Serializes SPI transfers and access to the reusable bus buffers. */
 	struct mutex bus_lock;

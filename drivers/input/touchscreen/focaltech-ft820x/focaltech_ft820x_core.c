@@ -4,6 +4,7 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/errno.h>
+#include <linux/firmware.h>
 #include <linux/gpio/consumer.h>
 #include <linux/input.h>
 #include <linux/input/mt.h>
@@ -34,9 +35,7 @@
 #define FT820X_EVENT_UP			1
 #define FT820X_EVENT_CONTACT		2
 #define FT820X_INVALID_TOUCH_ID		0x0a
-
-static int ft820x_input_open(struct input_dev *input);
-static void ft820x_input_close(struct input_dev *input);
+#define FT820X_BOOT_STATE_VALUE		0xef
 
 void ft820x_reset(struct ft820x_data *data, unsigned int delay_ms)
 {
@@ -61,6 +60,7 @@ static int ft820x_wait_ready(struct ft820x_data *data)
 {
 	u8 chip_id_h = 0;
 	u8 chip_id_l = 0;
+	bool boot_state = false;
 	int error = -ENODEV;
 	int attempt;
 
@@ -75,14 +75,49 @@ static int ft820x_wait_ready(struct ft820x_data *data)
 				chip_id_h, chip_id_l);
 			return 0;
 		}
+		if (!error)
+			boot_state = chip_id_h == FT820X_BOOT_STATE_VALUE &&
+				     chip_id_l == FT820X_BOOT_STATE_VALUE;
 
 		msleep(20);
 	}
 
 	dev_err(&data->spi->dev, "unexpected chip ID %02x:%02x\n",
 		chip_id_h, chip_id_l);
+	if (boot_state)
+		return -EAGAIN;
+
 	return error ?: -ENODEV;
 }
+
+#ifdef CONFIG_TOUCHSCREEN_FOCALTECH_FT820X_FW_DOWNLOAD
+static int ft820x_load_ram_firmware(struct ft820x_data *data)
+{
+	const struct firmware *firmware;
+	int error;
+
+	dev_info(&data->spi->dev,
+		 "application is not running, loading %s into RAM\n",
+		 data->firmware_name);
+
+	error = request_firmware(&firmware, data->firmware_name,
+				 &data->spi->dev);
+	if (error)
+		return dev_err_probe(&data->spi->dev, error,
+				     "failed to request RAM firmware %s\n",
+				     data->firmware_name);
+
+	error = ft820x_ram_firmware_download(data, firmware->data,
+					     firmware->size);
+	release_firmware(firmware);
+	if (error)
+		return dev_err_probe(&data->spi->dev, error,
+				     "failed to download RAM firmware\n");
+
+	dev_info(&data->spi->dev, "RAM firmware download completed\n");
+	return 0;
+}
+#endif
 
 static bool ft820x_touch_active(u8 event)
 {
@@ -207,8 +242,6 @@ static int ft820x_input_init(struct ft820x_data *data)
 
 	input->name = "FocalTech FT820x Touchscreen";
 	input->id.bustype = BUS_SPI;
-	input->open = ft820x_input_open;
-	input->close = ft820x_input_close;
 	input_set_drvdata(input, data);
 
 	input_set_capability(input, EV_KEY, BTN_TOUCH);
@@ -244,6 +277,13 @@ static int ft820x_power_on(struct ft820x_data *data)
 
 	ft820x_reset(data, 200);
 	error = ft820x_wait_ready(data);
+#ifdef CONFIG_TOUCHSCREEN_FOCALTECH_FT820X_FW_DOWNLOAD
+	if (error == -EAGAIN) {
+		error = ft820x_load_ram_firmware(data);
+		if (!error)
+			error = ft820x_wait_ready(data);
+	}
+#endif
 	if (error) {
 		ft820x_power_off(data);
 		return error;
@@ -287,16 +327,6 @@ static void ft820x_stop(struct ft820x_data *data)
 	ft820x_power_off(data);
 }
 
-static int ft820x_input_open(struct input_dev *input)
-{
-	return ft820x_start(input_get_drvdata(input));
-}
-
-static void ft820x_input_close(struct input_dev *input)
-{
-	ft820x_stop(input_get_drvdata(input));
-}
-
 static int ft820x_probe(struct spi_device *spi)
 {
 	struct device *dev = &spi->dev;
@@ -318,6 +348,14 @@ static int ft820x_probe(struct spi_device *spi)
 	if (IS_ERR(data->reset_gpio))
 		return dev_err_probe(dev, PTR_ERR(data->reset_gpio),
 				     "failed to get reset GPIO\n");
+
+#ifdef CONFIG_TOUCHSCREEN_FOCALTECH_FT820X_FW_DOWNLOAD
+	error = device_property_read_string(dev, "firmware-name",
+					    &data->firmware_name);
+	if (error)
+		return dev_err_probe(dev, error,
+				     "missing RAM firmware name\n");
+#endif
 
 	error = devm_add_action_or_reset(dev, ft820x_power_off, data);
 	if (error)
@@ -345,12 +383,14 @@ static int ft820x_probe(struct spi_device *spi)
 	if (error)
 		return dev_err_probe(dev, error, "failed to request IRQ\n");
 
-	ft820x_power_off(data);
-
 	error = input_register_device(data->input);
 	if (error)
 		return dev_err_probe(dev, error,
 				     "failed to register input device\n");
+
+	WRITE_ONCE(data->running, true);
+	enable_irq(spi->irq);
+	dev_info(dev, "input started, IRQ %d enabled\n", spi->irq);
 
 	dev_info(dev, "FT8203 touchscreen initialized\n");
 	return 0;
@@ -360,10 +400,7 @@ static int ft820x_suspend(struct device *dev)
 {
 	struct ft820x_data *data = dev_get_drvdata(dev);
 
-	mutex_lock(&data->input->mutex);
-	if (input_device_enabled(data->input))
-		ft820x_stop(data);
-	mutex_unlock(&data->input->mutex);
+	ft820x_stop(data);
 
 	return 0;
 }
@@ -373,12 +410,7 @@ static int ft820x_resume(struct device *dev)
 	struct ft820x_data *data = dev_get_drvdata(dev);
 	int error;
 
-	mutex_lock(&data->input->mutex);
-	if (input_device_enabled(data->input))
-		error = ft820x_start(data);
-	else
-		error = 0;
-	mutex_unlock(&data->input->mutex);
+	error = ft820x_start(data);
 
 	return error;
 }
@@ -391,6 +423,12 @@ static const struct of_device_id ft820x_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, ft820x_of_match);
 
+static const struct spi_device_id ft820x_id[] = {
+	{ "ft8203" },
+	{ }
+};
+MODULE_DEVICE_TABLE(spi, ft820x_id);
+
 static struct spi_driver ft820x_driver = {
 	.driver = {
 		.name = "focaltech-ft820x",
@@ -398,9 +436,11 @@ static struct spi_driver ft820x_driver = {
 		.pm = pm_sleep_ptr(&ft820x_pm_ops),
 	},
 	.probe = ft820x_probe,
+	.id_table = ft820x_id,
 };
 module_spi_driver(ft820x_driver);
 
 MODULE_AUTHOR("FocalTech Systems");
 MODULE_DESCRIPTION("FocalTech FT820x touchscreen driver");
 MODULE_LICENSE("GPL");
+MODULE_FIRMWARE("focaltech/ft8203_gts7xllite.bin");

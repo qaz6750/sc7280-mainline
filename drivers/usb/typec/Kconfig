@@ -110,6 +110,19 @@ config TYPEC_WUSB3801
 	  If you choose to build this driver as a dynamically linked module, the
 	  module will be called wusb3801.ko.
 
+config TYPEC_SM5714
+	tristate "Silicon Mitus SM5714 Type-C port controller driver"
+	depends on I2C
+	depends on USB_ROLE_SWITCH
+	select REGMAP_I2C
+	help
+	  Say Y or M here if your system has a Silicon Mitus SM5714 Type-C
+	  port controller. This driver reports CC attachment, orientation and
+	  USB data role. It does not implement USB Power Delivery negotiation.
+
+	  If you choose to build this driver as a dynamically linked module, the
+	  module will be called sm5714-typec.ko.
+
 source "drivers/usb/typec/mux/Kconfig"
 
 source "drivers/usb/typec/altmodes/Kconfig"

@@ -561,6 +561,16 @@
 	status = "disabled";
 };
 */
+&remoteproc_adsp {
+	firmware-name = "qcom/sm7325/samsung/gts7fewifi/adsp.mbn";
+	status = "okay";
+};
+
+&remoteproc_cdsp {
+	firmware-name = "qcom/sm7325/samsung/gts7fewifi/cdsp.mbn";
+	status = "okay";
+};
+
 &remoteproc_wpss {
 	firmware-name = "qcom/sm7325/samsung/gts7fewifi/wpss.mbn";
 	status = "okay";

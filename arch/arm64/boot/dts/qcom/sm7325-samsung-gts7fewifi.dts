@@ -449,6 +449,10 @@
 	};
 };
 
+&pmk8350_rtc {
+	status = "okay";
+};
+
 &pon_pwrkey {
 	status = "okay";
 	wakeup-source;

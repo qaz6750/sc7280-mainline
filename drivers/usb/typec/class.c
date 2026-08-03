@@ -2426,7 +2426,14 @@ EXPORT_SYMBOL_GPL(typec_get_orientation);
  */
 int typec_set_mode(struct typec_port *port, int mode)
 {
+	struct typec_retimer_state retimer_state = { };
 	struct typec_mux_state state = { };
+	int ret;
+
+	retimer_state.mode = mode;
+	ret = typec_retimer_set(port->retimer, &retimer_state);
+	if (ret)
+		return ret;
 
 	state.mode = mode;
 

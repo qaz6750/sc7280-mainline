@@ -13,6 +13,7 @@
 #include <linux/of_graph.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
+#include <linux/usb/role.h>
 #include <linux/usb/typec_dp.h>
 #include <linux/usb/typec_mux.h>
 #include <linux/usb/typec_retimer.h>
@@ -30,6 +31,7 @@ struct ps5169 {
 
 	struct typec_switch *typec_switch;
 	struct typec_mux *typec_mux;
+	struct usb_role_switch *role_sw;
 
 	struct mutex lock; /* protect non-concurrent retimer & switch */
 
@@ -41,17 +43,28 @@ struct ps5169 {
 static int ps5169_set(struct ps5169 *ps5169)
 {
 	bool reverse = (ps5169->orientation == TYPEC_ORIENTATION_REVERSE);
+	enum usb_role role;
+	int ret;
 
 	switch (ps5169->mode) {
 	case TYPEC_STATE_SAFE:
-		/* regmap_write(ps5169->regmap, 0x04, 0x00); */
-		regmap_write(ps5169->regmap, 0x40, 0x80);
-		regmap_write(ps5169->regmap, 0xa0, 0x02);
-		regmap_write(ps5169->regmap, 0xa1, 0x00);
+		ret = regmap_write(ps5169->regmap, 0x40, 0x80);
+		if (ret)
+			return ret;
 
-		return 0;
+		ret = regmap_write(ps5169->regmap, 0xa0, 0x02);
+		if (ret)
+			return ret;
+
+		ret = regmap_write(ps5169->regmap, 0xa1, 0x00);
+		if (ret)
+			return ret;
+
+		return regmap_write(ps5169->regmap, 0x04, 0x00);
 
 	case TYPEC_STATE_USB:
+		role = usb_role_switch_get_requested_role(ps5169->role_sw);
+
 		/*
 		 * Normal Orientation (CC1)
 		 * A -> USB RX
@@ -67,11 +80,14 @@ static int ps5169_set(struct ps5169 *ps5169)
 
 		/* USB 3.2 Gen 2 only */
 		if (!reverse)
-			regmap_write(ps5169->regmap, 0x40, 0xc0);
+			ret = regmap_write(ps5169->regmap, 0x40, 0xc0);
 		else
-			regmap_write(ps5169->regmap, 0x40, 0xd0);
+			ret = regmap_write(ps5169->regmap, 0x40, 0xd0);
+		if (ret)
+			return ret;
 
-		return 0;
+		return regmap_write(ps5169->regmap, 0x04,
+				    role == USB_ROLE_DEVICE ? 0x44 : 0x00);
 
 	default:
 		if (ps5169->svid != USB_TYPEC_DP_SID)
@@ -99,12 +115,17 @@ static int ps5169_set(struct ps5169 *ps5169)
 
 		/* 4-lane DP */
 		if (!reverse)
-			regmap_write(ps5169->regmap, 0x40, 0xa0);
+			ret = regmap_write(ps5169->regmap, 0x40, 0xa0);
 		else
-			regmap_write(ps5169->regmap, 0x40, 0xb0);
+			ret = regmap_write(ps5169->regmap, 0x40, 0xb0);
+		if (ret)
+			return ret;
 
-		regmap_write(ps5169->regmap, 0xa0, 0x00);
-		regmap_write(ps5169->regmap, 0xa1, 0x04);
+		ret = regmap_write(ps5169->regmap, 0xa0, 0x00);
+		if (ret)
+			return ret;
+
+		ret = regmap_write(ps5169->regmap, 0xa1, 0x04);
 		break;
 
 	case TYPEC_DP_STATE_D:
@@ -124,25 +145,31 @@ static int ps5169_set(struct ps5169 *ps5169)
 
 		/* USB 3.2 Gen 2 and 2-lane DP */
 		if (!reverse)
-			regmap_write(ps5169->regmap, 0x40, 0xe0);
+			ret = regmap_write(ps5169->regmap, 0x40, 0xe0);
 		else
-			regmap_write(ps5169->regmap, 0x40, 0xf0);
+			ret = regmap_write(ps5169->regmap, 0x40, 0xf0);
+		if (ret)
+			return ret;
 
-		regmap_write(ps5169->regmap, 0xa0, 0x00);
-		regmap_write(ps5169->regmap, 0xa1, 0x04);
+		ret = regmap_write(ps5169->regmap, 0xa0, 0x00);
+		if (ret)
+			return ret;
+
+		ret = regmap_write(ps5169->regmap, 0xa1, 0x04);
 		break;
 
 	default:
 		return -EOPNOTSUPP;
 	}
 
-	return 0;
+	return ret;
 }
 
 static int ps5169_sw_set(struct typec_switch_dev *sw, enum typec_orientation orientation)
 {
 	struct ps5169 *ps5169 = typec_switch_get_drvdata(sw);
-	int ret;
+	enum typec_orientation old_orientation;
+	int ret = 0;
 
 	ret = typec_switch_set(ps5169->typec_switch, orientation);
 	if (ret)
@@ -151,9 +178,14 @@ static int ps5169_sw_set(struct typec_switch_dev *sw, enum typec_orientation ori
 	mutex_lock(&ps5169->lock);
 
 	if (ps5169->orientation != orientation) {
+		old_orientation = ps5169->orientation;
 		ps5169->orientation = orientation;
 
 		ret = ps5169_set(ps5169);
+		if (ret) {
+			ps5169->orientation = old_orientation;
+			typec_switch_set(ps5169->typec_switch, old_orientation);
+		}
 	}
 
 	mutex_unlock(&ps5169->lock);
@@ -165,11 +197,15 @@ static int ps5169_retimer_set(struct typec_retimer *retimer, struct typec_retime
 {
 	struct ps5169 *ps5169 = typec_retimer_get_drvdata(retimer);
 	struct typec_mux_state mux_state;
+	unsigned long old_mode;
+	u16 old_svid;
 	int ret = 0;
 
 	mutex_lock(&ps5169->lock);
 
-	if (ps5169->mode != state->mode) {
+	if (ps5169->mode != state->mode || state->mode == TYPEC_STATE_USB) {
+		old_mode = ps5169->mode;
+		old_svid = ps5169->svid;
 		ps5169->mode = state->mode;
 
 		if (state->alt)
@@ -178,6 +214,10 @@ static int ps5169_retimer_set(struct typec_retimer *retimer, struct typec_retime
 			ps5169->svid = 0;
 
 		ret = ps5169_set(ps5169);
+		if (ret) {
+			ps5169->mode = old_mode;
+			ps5169->svid = old_svid;
+		}
 	}
 
 	mutex_unlock(&ps5169->lock);
@@ -210,39 +250,47 @@ static int ps5169_detect(struct ps5169 *ps5169)
 
 static int ps5169_configure(struct ps5169 *ps5169)
 {
-	regmap_write(ps5169->regmap, 0x9d, 0x80);
+	static const struct reg_sequence init_sequence[] = {
+		{ 0x9d, 0x00 },
+		{ 0x40, 0x80 },
+		{ 0xa0, 0x02 },
+		{ 0xa1, 0x00 },
+		{ 0x04, 0x00 },
+		{ 0x8d, 0x01 },
+		{ 0x90, 0x01 },
+		{ 0x51, 0x87 },
+		{ 0x50, 0x20 },
+		{ 0x54, 0x11 },
+		{ 0x5d, 0x66 },
+		{ 0x52, 0x50 },
+		{ 0x55, 0x00 },
+		{ 0x56, 0x00 },
+		{ 0x57, 0x00 },
+		{ 0x58, 0x00 },
+		{ 0x59, 0x00 },
+		{ 0x5a, 0x00 },
+		{ 0x5b, 0x00 },
+		{ 0x5e, 0x06 },
+		{ 0x5f, 0x00 },
+		{ 0x60, 0x00 },
+		{ 0x61, 0x03 },
+		{ 0x65, 0x40 },
+		{ 0x66, 0x00 },
+		{ 0x67, 0x03 },
+		{ 0x75, 0x0c },
+		{ 0x77, 0x00 },
+		{ 0x78, 0x7c },
+	};
+	int ret;
+
+	ret = regmap_write(ps5169->regmap, 0x9d, 0x80);
+	if (ret)
+		return ret;
+
 	usleep_range(10000, 10100);
-	regmap_write(ps5169->regmap, 0x9d, 0x00);
-	regmap_write(ps5169->regmap, 0x40, 0x80);
 
-	regmap_write(ps5169->regmap, 0xa0, 0x02);
-	regmap_write(ps5169->regmap, 0x8d, 0x01);
-	regmap_write(ps5169->regmap, 0x90, 0x01);
-
-	regmap_write(ps5169->regmap, 0x51, 0x87);
-	regmap_write(ps5169->regmap, 0x50, 0x20);
-	regmap_write(ps5169->regmap, 0x54, 0x11);
-	regmap_write(ps5169->regmap, 0x5d, 0x66);
-	regmap_write(ps5169->regmap, 0x52, 0x50);
-	regmap_write(ps5169->regmap, 0x55, 0x00);
-	regmap_write(ps5169->regmap, 0x56, 0x00);
-	regmap_write(ps5169->regmap, 0x57, 0x00);
-	regmap_write(ps5169->regmap, 0x58, 0x00);
-	regmap_write(ps5169->regmap, 0x59, 0x00);
-	regmap_write(ps5169->regmap, 0x5a, 0x00);
-	regmap_write(ps5169->regmap, 0x5b, 0x00);
-	regmap_write(ps5169->regmap, 0x5e, 0x06);
-	regmap_write(ps5169->regmap, 0x5f, 0x00);
-	regmap_write(ps5169->regmap, 0x60, 0x00);
-	regmap_write(ps5169->regmap, 0x61, 0x03);
-	regmap_write(ps5169->regmap, 0x65, 0x40);
-	regmap_write(ps5169->regmap, 0x66, 0x00);
-	regmap_write(ps5169->regmap, 0x67, 0x03);
-	regmap_write(ps5169->regmap, 0x75, 0x0c);
-	regmap_write(ps5169->regmap, 0x77, 0x00);
-	regmap_write(ps5169->regmap, 0x78, 0x7c);
-
-	return 0;
+	return regmap_multi_reg_write(ps5169->regmap, init_sequence,
+				      ARRAY_SIZE(init_sequence));
 }
 
 static const struct regmap_config ps5169_regmap = {
@@ -254,6 +302,7 @@ static const struct regmap_config ps5169_regmap = {
 static int ps5169_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
+	struct device_node *connector;
 	struct typec_switch_desc sw_desc = { };
 	struct typec_retimer_desc retimer_desc = { };
 	struct ps5169 *ps5169;
@@ -264,6 +313,7 @@ static int ps5169_probe(struct i2c_client *client)
 		return -ENOMEM;
 
 	ps5169->client = client;
+	ps5169->mode = TYPEC_STATE_SAFE;
 
 	mutex_init(&ps5169->lock);
 
@@ -272,15 +322,20 @@ static int ps5169_probe(struct i2c_client *client)
 		return dev_err_probe(dev, PTR_ERR(ps5169->regmap),
 				     "failed to allocate register map\n");
 
-	ps5169->dvdd_supply = devm_regulator_get(dev, "dvdd");
-	if (IS_ERR(ps5169->dvdd_supply))
-		return dev_err_probe(dev, PTR_ERR(ps5169->dvdd_supply),
-				     "failed to get dvdd regulator\n");
+	ps5169->dvdd_supply = devm_regulator_get_optional(dev, "dvdd");
+	if (IS_ERR(ps5169->dvdd_supply)) {
+		ret = PTR_ERR(ps5169->dvdd_supply);
+		if (ret == -ENODEV)
+			ps5169->dvdd_supply = NULL;
+		else
+			return dev_err_probe(dev, ret,
+					     "failed to get optional dvdd regulator\n");
+	}
 
-	ps5169->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
+	ps5169->reset_gpio = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_LOW);
 	if (IS_ERR(ps5169->reset_gpio))
 		return dev_err_probe(dev, PTR_ERR(ps5169->reset_gpio),
-				     "failed to get reset gpio\n");
+				     "failed to get optional reset gpio\n");
 
 	ps5169->typec_switch = typec_switch_get(dev);
 	if (IS_ERR(ps5169->typec_switch))
@@ -294,10 +349,28 @@ static int ps5169_probe(struct i2c_client *client)
 		goto err_switch_put;
 	}
 
-	ret = regulator_enable(ps5169->dvdd_supply);
-	if (ret) {
-		ret = dev_err_probe(dev, ret, "failed to enable dvdd regulator\n");
+	connector = of_graph_get_remote_node(dev_of_node(dev), 0, 0);
+	if (!connector) {
+		ret = dev_err_probe(dev, -ENODEV,
+				    "failed to find Type-C connector\n");
 		goto err_mux_put;
+	}
+
+	ps5169->role_sw = fwnode_usb_role_switch_get(of_fwnode_handle(connector));
+	of_node_put(connector);
+	if (IS_ERR(ps5169->role_sw)) {
+		ret = dev_err_probe(dev, PTR_ERR(ps5169->role_sw),
+				    "failed to acquire USB role switch\n");
+		goto err_mux_put;
+	}
+
+	if (ps5169->dvdd_supply) {
+		ret = regulator_enable(ps5169->dvdd_supply);
+		if (ret) {
+			ret = dev_err_probe(dev, ret,
+					    "failed to enable dvdd regulator\n");
+			goto err_role_sw_put;
+		}
 	}
 
 	gpiod_set_value(ps5169->reset_gpio, 0);
@@ -338,13 +411,18 @@ static int ps5169_probe(struct i2c_client *client)
 		goto err_switch_unregister;
 	}
 
+	i2c_set_clientdata(client, ps5169);
+
 	return 0;
 
 err_switch_unregister:
 	typec_switch_unregister(ps5169->sw);
 err_disable_regulator:
 	gpiod_set_value(ps5169->reset_gpio, 1);
-	regulator_disable(ps5169->dvdd_supply);
+	if (ps5169->dvdd_supply)
+		regulator_disable(ps5169->dvdd_supply);
+err_role_sw_put:
+	usb_role_switch_put(ps5169->role_sw);
 err_mux_put:
 	typec_mux_put(ps5169->typec_mux);
 err_switch_put:
@@ -362,8 +440,10 @@ static void ps5169_remove(struct i2c_client *client)
 
 	gpiod_set_value(ps5169->reset_gpio, 1);
 
-	regulator_disable(ps5169->dvdd_supply);
+	if (ps5169->dvdd_supply)
+		regulator_disable(ps5169->dvdd_supply);
 
+	usb_role_switch_put(ps5169->role_sw);
 	typec_mux_put(ps5169->typec_mux);
 	typec_switch_put(ps5169->typec_switch);
 }

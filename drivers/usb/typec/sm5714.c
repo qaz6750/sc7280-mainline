@@ -9,6 +9,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/usb/role.h>
 #include <linux/usb/typec.h>
+#include <linux/usb/typec_altmode.h>
 
 #define SM5714_REG_INT1			0x01
 #define SM5714_REG_INT_MASK1		0x06
@@ -21,6 +22,8 @@
 
 #define SM5714_INT_ATTACH		BIT(3)
 #define SM5714_INT_DETACH		BIT(4)
+#define SM5714_INT_VBUSPOK		BIT(0)
+#define SM5714_INT_VBUS_0V		BIT(5)
 #define SM5714_STATUS_ATTACHED		BIT(3)
 
 #define SM5714_CC_ATTACH_TYPE		GENMASK(2, 0)
@@ -50,12 +53,20 @@ static const struct regmap_config sm5714_typec_regmap_config = {
 	.max_register = 0xff,
 };
 
-static void sm5714_typec_detach(struct sm5714_typec *typec)
+static int sm5714_typec_detach(struct sm5714_typec *typec)
 {
-	usb_role_switch_set_role(typec->role_sw, USB_ROLE_NONE);
+	int ret;
+	int tmp;
+
+	ret = typec_set_mode(typec->port, TYPEC_STATE_SAFE);
+	tmp = usb_role_switch_set_role(typec->role_sw, USB_ROLE_NONE);
+	if (!ret)
+		ret = tmp;
 	typec->usb_role = USB_ROLE_NONE;
 	if (typec->vbus_on) {
-		regulator_disable(typec->vbus);
+		tmp = regulator_disable(typec->vbus);
+		if (!ret)
+			ret = tmp;
 		typec->vbus_on = false;
 	}
 
@@ -64,7 +75,11 @@ static void sm5714_typec_detach(struct sm5714_typec *typec)
 		typec->partner = NULL;
 	}
 
-	typec_set_orientation(typec->port, TYPEC_ORIENTATION_NONE);
+	tmp = typec_set_orientation(typec->port, TYPEC_ORIENTATION_NONE);
+	if (!ret)
+		ret = tmp;
+
+	return ret;
 }
 
 static int sm5714_typec_attach(struct sm5714_typec *typec,
@@ -76,6 +91,7 @@ static int sm5714_typec_attach(struct sm5714_typec *typec,
 	enum typec_role power_role;
 	enum usb_role usb_role;
 	unsigned int attach_type;
+	enum typec_orientation old_orientation;
 	int ret;
 
 	attach_type = FIELD_GET(SM5714_CC_ATTACH_TYPE, cc_status);
@@ -99,19 +115,29 @@ static int sm5714_typec_attach(struct sm5714_typec *typec,
 	default:
 		dev_dbg(typec->dev, "unsupported CC attach type %#x\n",
 			attach_type);
-		sm5714_typec_detach(typec);
-		return 0;
+		return sm5714_typec_detach(typec);
 	}
 
 	orientation = cc_status & SM5714_CC_CABLE_FLIP ?
 		TYPEC_ORIENTATION_REVERSE : TYPEC_ORIENTATION_NORMAL;
 
 	if (typec->partner && typec->usb_role == usb_role) {
-		typec_set_orientation(typec->port, orientation);
-		return 0;
+		old_orientation = typec_get_orientation(typec->port);
+		ret = typec_set_orientation(typec->port, orientation);
+		if (ret || usb_role == USB_ROLE_NONE)
+			return ret;
+
+		ret = typec_set_mode(typec->port, TYPEC_STATE_USB);
+		if (ret)
+			typec_set_orientation(typec->port, old_orientation);
+
+		return ret;
 	}
 
-	sm5714_typec_detach(typec);
+	ret = sm5714_typec_detach(typec);
+	if (ret)
+		return ret;
+
 	ret = regmap_update_bits(typec->regmap, SM5714_REG_PD_CNTL2,
 				 SM5714_PD_ROLE_MASK,
 				 usb_role == USB_ROLE_HOST ?
@@ -127,37 +153,49 @@ static int sm5714_typec_attach(struct sm5714_typec *typec,
 		typec->vbus_on = true;
 	}
 
+	ret = typec_set_orientation(typec->port, orientation);
+	if (ret)
+		goto disable_vbus;
+
 	ret = usb_role_switch_set_role(typec->role_sw, usb_role);
-	if (ret) {
-		if (typec->vbus_on) {
-			regulator_disable(typec->vbus);
-			typec->vbus_on = false;
-		}
-		return ret;
+	if (ret)
+		goto reset_orientation;
+
+	if (usb_role != USB_ROLE_NONE) {
+		ret = typec_set_mode(typec->port, TYPEC_STATE_USB);
+		if (ret)
+			goto reset_role;
 	}
 
 	typec_set_pwr_role(typec->port, power_role);
 	typec_set_data_role(typec->port, data_role);
 	typec_set_pwr_opmode(typec->port, TYPEC_PWR_MODE_USB);
-	typec_set_orientation(typec->port, orientation);
 
 	desc.usb_pd = false;
 	typec->partner = typec_register_partner(typec->port, &desc);
 	if (IS_ERR(typec->partner)) {
 		ret = PTR_ERR(typec->partner);
 		typec->partner = NULL;
-		usb_role_switch_set_role(typec->role_sw, USB_ROLE_NONE);
-		if (typec->vbus_on) {
-			regulator_disable(typec->vbus);
-			typec->vbus_on = false;
-		}
-		typec_set_orientation(typec->port, TYPEC_ORIENTATION_NONE);
+		sm5714_typec_detach(typec);
 		return ret;
 	}
 
 	typec->usb_role = usb_role;
 
 	return 0;
+
+reset_role:
+	usb_role_switch_set_role(typec->role_sw, USB_ROLE_NONE);
+reset_orientation:
+	typec_set_mode(typec->port, TYPEC_STATE_SAFE);
+	typec_set_orientation(typec->port, TYPEC_ORIENTATION_NONE);
+disable_vbus:
+	if (typec->vbus_on) {
+		regulator_disable(typec->vbus);
+		typec->vbus_on = false;
+	}
+
+	return ret;
 }
 
 static int sm5714_typec_update(struct sm5714_typec *typec)
@@ -170,8 +208,7 @@ static int sm5714_typec_update(struct sm5714_typec *typec)
 		return ret;
 
 	if (!(status1 & SM5714_STATUS_ATTACHED)) {
-		sm5714_typec_detach(typec);
-		return 0;
+		return sm5714_typec_detach(typec);
 	}
 
 	ret = regmap_read(typec->regmap, SM5714_REG_CC_STATUS, &cc_status);
@@ -195,7 +232,10 @@ static irqreturn_t sm5714_typec_irq(int irq, void *data)
 		return IRQ_HANDLED;
 	}
 
-	if (interrupts[0] & (SM5714_INT_ATTACH | SM5714_INT_DETACH)) {
+	if ((interrupts[0] & (SM5714_INT_VBUSPOK |
+			      SM5714_INT_ATTACH |
+			      SM5714_INT_DETACH)) ||
+	    (interrupts[1] & SM5714_INT_VBUS_0V)) {
 		ret = sm5714_typec_update(typec);
 		if (ret)
 			dev_err_ratelimited(typec->dev,
@@ -209,8 +249,11 @@ static int sm5714_typec_hw_init(struct sm5714_typec *typec)
 {
 	u8 interrupts[5];
 	u8 masks[5] = {
-		0xff & ~(SM5714_INT_ATTACH | SM5714_INT_DETACH),
-		0xff, 0xff, 0xff, 0xff,
+		0xff & ~(SM5714_INT_VBUSPOK |
+			 SM5714_INT_ATTACH |
+			 SM5714_INT_DETACH),
+		0xff & ~SM5714_INT_VBUS_0V,
+		0xff, 0xff, 0xff,
 	};
 	int ret;
 

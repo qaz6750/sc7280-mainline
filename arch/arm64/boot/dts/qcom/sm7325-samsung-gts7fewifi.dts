@@ -520,9 +520,58 @@
 			try-power-role = "sink";
 			typec-power-opmode = "default";
 
-			port {
-				sm5714_typec_hs: endpoint {
-					remote-endpoint = <&usb_1_dwc3_hs>;
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+
+					sm5714_typec_hs: endpoint {
+						remote-endpoint = <&usb_1_dwc3_hs>;
+					};
+				};
+
+				port@1 {
+					reg = <1>;
+
+					sm5714_typec_ss: endpoint {
+						remote-endpoint = <&ps5169_out>;
+					};
+				};
+			};
+		};
+	};
+};
+
+&i2c6 {
+	clock-frequency = <400000>;
+	status = "okay";
+
+	typec-mux@28 {
+		compatible = "parade,ps5169";
+		reg = <0x28>;
+
+		orientation-switch;
+		retimer-switch;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+
+				ps5169_out: endpoint {
+					remote-endpoint = <&sm5714_typec_ss>;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+
+				ps5169_in: endpoint {
+					remote-endpoint = <&usb_dp_qmpphy_out>;
 				};
 			};
 		};
@@ -778,12 +827,8 @@
 };
 
 &usb_1 {
-	qcom,select-utmi-as-pipe-clk;
 	dr_mode = "otg";
 	usb-role-switch;
-	maximum-speed = "high-speed";
-	phys = <&usb_1_hsphy>;
-	phy-names = "usb2-phy";
 	status = "okay";
 };
 
@@ -796,6 +841,16 @@
 	vdda18-supply = <&vdd_a_usbhs_1p8>;
 	vdda33-supply = <&vdd_a_usbhs_3p1>;
 	status = "okay";
+};
+
+&usb_1_qmpphy {
+	vdda-phy-supply = <&vdd_a_usbhs_core>;
+	vdda-pll-supply = <&vdd_a_ufs_0_1p2>;
+	status = "okay";
+};
+
+&usb_dp_qmpphy_out {
+	remote-endpoint = <&ps5169_in>;
 };
 
 &wifi {

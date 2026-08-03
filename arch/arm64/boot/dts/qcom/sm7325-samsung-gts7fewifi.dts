@@ -340,6 +340,13 @@
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
+		vreg_l6c_1p8: ldo6 {
+			regulator-name = "vreg_l6c_1p8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <2960000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
 		panel_vddi: ldo8 {
 			regulator-name = "panel_vddi";
 			regulator-enable-ramp-delay = <3000>;
@@ -348,6 +355,13 @@
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 			regulator-always-on;
 			regulator-boot-on;
+		};
+
+		vreg_l9c_2p96: ldo9 {
+			regulator-name = "vreg_l9c_2p96";
+			regulator-min-microvolt = <2960000>;
+			regulator-max-microvolt = <3008000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
 		vdd_a_dsi_0_0p9:
@@ -675,6 +689,20 @@
 &qupv3_id_1 {
 	status = "okay";
 };
+
+&sdhc_2 {
+	cd-gpios = <&tlmm 91 GPIO_ACTIVE_LOW>;
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&sdc2_clk &sdc2_cmd &sdc2_data &sdc2_card_det_n>;
+	pinctrl-1 = <&sdc2_clk_sleep &sdc2_cmd_sleep &sdc2_data_sleep
+		     &sdc2_card_det_n>;
+	vmmc-supply = <&vreg_l9c_2p96>;
+	vqmmc-supply = <&vreg_l6c_1p8>;
+	no-sdio;
+	no-mmc;
+	status = "okay";
+};
+
 &tlmm {
 	bt_en: bt-en-state {
 		pins = "gpio85";
@@ -746,6 +774,13 @@
 		function = "gpio";
 		output-high;
 		bias-disable;
+	};
+
+	sdc2_card_det_n: sd-card-det-n-state {
+		pins = "gpio91";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
 	};
 
 	sm5714_irq: sm5714-irq-state {

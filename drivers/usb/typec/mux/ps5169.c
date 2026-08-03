@@ -235,15 +235,18 @@ static int ps5169_retimer_set(struct typec_retimer *retimer, struct typec_retime
 static int ps5169_detect(struct ps5169 *ps5169)
 {
 	struct device *dev = &ps5169->client->dev;
-	u32 reg_val;
+	__le16 reg_val;
 	int ret;
 
-	ret = regmap_raw_read(ps5169->regmap, PS5169_CHIP_ID_REG, &reg_val, 2);
+	ret = regmap_raw_read(ps5169->regmap, PS5169_CHIP_ID_REG, &reg_val,
+			      sizeof(reg_val));
 	if (ret < 0)
 		return dev_err_probe(dev, ret, "failed to read chip ID\n");
 
-	if (reg_val != PS5169_CHIP_ID)
-		return dev_err_probe(dev, -ENODEV, "unexpected chip ID: (0x%04x)\n", reg_val);
+	if (le16_to_cpu(reg_val) != PS5169_CHIP_ID)
+		return dev_err_probe(dev, -ENODEV,
+				     "unexpected chip ID: (0x%04x)\n",
+				     le16_to_cpu(reg_val));
 
 	return 0;
 }

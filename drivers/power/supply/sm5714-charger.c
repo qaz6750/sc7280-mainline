@@ -23,9 +23,63 @@
 #define SM5714_CHARGE_VOLTAGE_MAX_UV	4620000
 
 struct sm5714_charger {
+	struct sm5714 *sm5714;
 	struct regmap *regmap;
 	struct power_supply *psy;
+	struct notifier_block notifier;
 };
+
+static int sm5714_charger_notifier(struct notifier_block *notifier,
+				   unsigned long event, void *data)
+{
+	struct sm5714_charger *charger = container_of(notifier,
+						      struct sm5714_charger,
+						      notifier);
+	u8 *interrupts = data;
+
+	if (event == SM5714_EVENT_CHARGER &&
+	    ((interrupts[0] & SM5714_CHG_INT1_VBUSPOK) ||
+	    (interrupts[1] & (SM5714_CHG_INT2_NOBAT |
+			      SM5714_CHG_INT2_CHGON |
+			      SM5714_CHG_INT2_TOPOFF))))
+		power_supply_changed(charger->psy);
+
+	return NOTIFY_OK;
+}
+
+static void sm5714_charger_unregister_notifier(void *data)
+{
+	struct sm5714_charger *charger = data;
+
+	sm5714_unregister_notifier(charger->sm5714, &charger->notifier);
+}
+
+static int sm5714_charger_irq_init(struct platform_device *pdev,
+				   struct sm5714_charger *charger)
+{
+	u8 masks[5] = {
+		0xff & ~SM5714_CHG_INT1_VBUSPOK,
+		0xff & ~(SM5714_CHG_INT2_NOBAT |
+			 SM5714_CHG_INT2_CHGON |
+			 SM5714_CHG_INT2_TOPOFF),
+		0xff, 0xff, 0xff,
+	};
+	int ret;
+
+	charger->notifier.notifier_call = sm5714_charger_notifier;
+	ret = sm5714_register_notifier(charger->sm5714, &charger->notifier);
+	if (ret)
+		return ret;
+
+	ret = devm_add_action_or_reset(&pdev->dev,
+				       sm5714_charger_unregister_notifier,
+				       charger);
+	if (ret)
+		return ret;
+
+	return regmap_bulk_write(charger->regmap, SM5714_CHG_REG_INTMSK1,
+				 masks, ARRAY_SIZE(masks));
+}
 
 static int sm5714_charger_vbus_enable(struct regulator_dev *rdev)
 {
@@ -103,14 +157,14 @@ static int sm5714_charger_get_status(struct sm5714_charger *charger,
 	if (ret)
 		return ret;
 
-	if (status2 & SM5714_CHG_STATUS2_TOPOFF)
+	if (!(status1 & SM5714_CHG_STATUS1_VBUSPOK))
+		*status = POWER_SUPPLY_STATUS_DISCHARGING;
+	else if (status2 & SM5714_CHG_STATUS2_TOPOFF)
 		*status = POWER_SUPPLY_STATUS_FULL;
 	else if (status2 & SM5714_CHG_STATUS2_CHGON)
 		*status = POWER_SUPPLY_STATUS_CHARGING;
-	else if (status1 & SM5714_CHG_STATUS1_VBUSPOK)
-		*status = POWER_SUPPLY_STATUS_NOT_CHARGING;
 	else
-		*status = POWER_SUPPLY_STATUS_DISCHARGING;
+		*status = POWER_SUPPLY_STATUS_NOT_CHARGING;
 
 	return 0;
 }
@@ -269,6 +323,7 @@ static int sm5714_charger_probe(struct platform_device *pdev)
 	struct sm5714 *sm5714 = dev_get_drvdata(pdev->dev.parent);
 	struct sm5714_charger *charger;
 	struct regulator_dev *rdev;
+	int ret;
 
 	if (!sm5714)
 		return dev_err_probe(&pdev->dev, -ENODEV,
@@ -278,6 +333,7 @@ static int sm5714_charger_probe(struct platform_device *pdev)
 	if (!charger)
 		return -ENOMEM;
 
+	charger->sm5714 = sm5714;
 	charger->regmap = sm5714->charger_regmap;
 	psy_config.drv_data = charger;
 	psy_config.fwnode = dev_fwnode(&pdev->dev);
@@ -297,13 +353,16 @@ static int sm5714_charger_probe(struct platform_device *pdev)
 	charger->psy = devm_power_supply_register(&pdev->dev,
 						  &sm5714_charger_desc,
 						  &psy_config);
-	if (IS_ERR(charger->psy)) {
-		dev_warn(&pdev->dev, "failed to register power supply: %pe\n",
-			 charger->psy);
-		charger->psy = NULL;
-	} else {
-		dev_info(&pdev->dev, "registered charger power supply\n");
-	}
+	if (IS_ERR(charger->psy))
+		return dev_err_probe(&pdev->dev, PTR_ERR(charger->psy),
+				     "failed to register power supply\n");
+
+	dev_info(&pdev->dev, "registered charger power supply\n");
+
+	ret = sm5714_charger_irq_init(pdev, charger);
+	if (ret)
+		return dev_err_probe(&pdev->dev, ret,
+				     "failed to initialize interrupts\n");
 
 	platform_set_drvdata(pdev, charger);
 

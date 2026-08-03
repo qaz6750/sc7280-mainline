@@ -60,11 +60,21 @@ static int sm5714_fg_get_property(struct power_supply *psy,
 				  union power_supply_propval *value)
 {
 	struct sm5714_fuel_gauge *fuel_gauge = power_supply_get_drvdata(psy);
+	struct power_supply *charger;
 	unsigned int address;
 	unsigned int raw;
 	int ret;
 
 	switch (property) {
+	case POWER_SUPPLY_PROP_STATUS:
+		charger = power_supply_get_by_reference(psy->dev.fwnode,
+							"power-supplies");
+		if (IS_ERR_OR_NULL(charger))
+			return charger ? PTR_ERR(charger) : -ENODEV;
+
+		ret = power_supply_get_property(charger, property, value);
+		power_supply_put(charger);
+		return ret;
 	case POWER_SUPPLY_PROP_CAPACITY:
 		address = SM5714_FG_SRAM_SOC;
 		break;
@@ -120,6 +130,7 @@ static int sm5714_fg_get_property(struct power_supply *psy,
 }
 
 static enum power_supply_property sm5714_fg_properties[] = {
+	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_VOLTAGE_AVG,
@@ -135,6 +146,7 @@ static const struct power_supply_desc sm5714_fg_desc = {
 	.properties = sm5714_fg_properties,
 	.num_properties = ARRAY_SIZE(sm5714_fg_properties),
 	.get_property = sm5714_fg_get_property,
+	.external_power_changed = power_supply_changed,
 };
 
 static int sm5714_fg_probe(struct platform_device *pdev)

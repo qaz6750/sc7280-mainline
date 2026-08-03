@@ -123,6 +123,28 @@ enum usb_role usb_role_switch_get_role(struct usb_role_switch *sw)
 }
 EXPORT_SYMBOL_GPL(usb_role_switch_get_role);
 
+/**
+ * usb_role_switch_get_requested_role - Get the last requested USB role
+ * @sw: USB role switch
+ *
+ * Return the last role successfully passed to usb_role_switch_set_role().
+ * Unlike usb_role_switch_get_role(), this does not query asynchronous hardware.
+ */
+enum usb_role usb_role_switch_get_requested_role(struct usb_role_switch *sw)
+{
+	enum usb_role role;
+
+	if (IS_ERR_OR_NULL(sw) || !sw->registered)
+		return USB_ROLE_NONE;
+
+	mutex_lock(&sw->lock);
+	role = sw->role;
+	mutex_unlock(&sw->lock);
+
+	return role;
+}
+EXPORT_SYMBOL_GPL(usb_role_switch_get_requested_role);
+
 static void *usb_role_switch_match(const struct fwnode_handle *fwnode, const char *id,
 				   void *data)
 {

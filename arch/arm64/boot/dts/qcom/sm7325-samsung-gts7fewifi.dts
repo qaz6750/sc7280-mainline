@@ -68,8 +68,17 @@
 	gpio-keys {
 		compatible = "gpio-keys";
 
-		pinctrl-0 = <&key_vol_up>;
+		pinctrl-0 = <&hall_sensor>, <&key_vol_up>;
 		pinctrl-names = "default";
+
+		lid-switch {
+			label = "Lid Switch";
+			gpios = <&tlmm 101 GPIO_ACTIVE_LOW>;
+			debounce-interval = <50>;
+			linux,input-type = <EV_SW>;
+			linux,code = <SW_LID>;
+			wakeup-source;
+		};
 
 		key-volume-up {
 			label = "Volume Up";
@@ -712,6 +721,13 @@
 		pins = "gpio85";
 		function = "gpio";
 		output-low;
+		bias-disable;
+	};
+
+	hall_sensor: hall-sensor-state {
+		pins = "gpio101";
+		function = "gpio";
+		input-enable;
 		bias-disable;
 	};
 

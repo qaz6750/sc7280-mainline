@@ -232,7 +232,6 @@
 		regulator-name = "panel_reset";
 		gpio = <&tlmm 44 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
-		regulator-always-on;
 		regulator-boot-on;
 		pinctrl-0 = <&panel_reset_state>;
 		pinctrl-names = "default";
@@ -479,7 +478,11 @@
 };
 
 &gpu {
-	status = "disabled";
+	status = "okay";
+};
+
+&gpu_zap_shader {
+	firmware-name = "qcom/sm7325/samsung/gts7fewifi/a660_zap.mbn";
 };
 
 &i2c3 {
@@ -593,22 +596,24 @@
 };
 
 &mdss {
-	status = "disabled";
+	status = "okay";
 };
 
-/*
 &mdss_dsi {
 	vdda-supply = <&vdd_a_dsi_0_1p2>;
-	status = "disabled";
+	status = "okay";
 
 	panel: panel@0 {
 		compatible = "boe,ts124qdm";
 		reg = <0>;
 
-		avdd-supply = <&panel_avdd>;
-		avee-supply = <&panel_avee>;
-		power-supply = <&panel_power>;
+		avdd-supply = <&panel_buck_en>;
+		avee-supply = <&panel_buck_en2>;
+		power-supply = <&panel_reset>;
 		vddi-supply = <&panel_vddi>;
+		pinctrl-0 = <&sde_te_active_sleep>;
+		pinctrl-1 = <&sde_te_active_sleep>;
+		pinctrl-names = "default", "sleep";
 
 		port {
 			panel_in: endpoint {
@@ -625,9 +630,8 @@
 
 &mdss_dsi_phy {
 	vdds-supply = <&vdd_a_dsi_0_0p9>;
-	status = "disabled";
+	status = "okay";
 };
-*/
 &remoteproc_adsp {
 	firmware-name = "qcom/sm7325/samsung/gts7fewifi/adsp.mbn";
 	status = "okay";
@@ -772,8 +776,14 @@
 	panel_reset_state: panel-reset-state {
 		pins = "gpio44";
 		function = "gpio";
-		output-high;
 		bias-disable;
+	};
+
+	sde_te_active_sleep: sde-te-active-sleep-state {
+		pins = "gpio80";
+		function = "mdp_vsync";
+		drive-strength = <2>;
+		bias-pull-down;
 	};
 
 	sdc2_card_det_n: sd-card-det-n-state {

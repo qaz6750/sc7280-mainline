@@ -459,12 +459,7 @@ static int ft8203_ts124qdm_wqxga_on(struct ft8203_ts124qdm_wqxga *ctx)
 	mipi_dsi_msleep(&dsi_ctx, 128);
 	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
 	ft8203_dcs_write_seq_long_multi(&dsi_ctx, MIPI_DCS_SET_TEAR_ON, 0x00);
-	mipi_dsi_msleep(&dsi_ctx, 255);
-	ft8203_dcs_write_seq_long_multi(&dsi_ctx,
-					 MIPI_DCS_SET_DISPLAY_BRIGHTNESS, 0x4b, 0x00);
-	ft8203_dcs_write_seq_long_multi(&dsi_ctx,
-					 MIPI_DCS_WRITE_CONTROL_DISPLAY, 0x24);
-	mipi_dsi_msleep(&dsi_ctx, 255);
+	mipi_dsi_msleep(&dsi_ctx, 32);
 
 	return dsi_ctx.accum_err;
 }
@@ -485,7 +480,6 @@ static int ft8203_ts124qdm_wqxga_prepare(struct drm_panel *panel)
 {
 	struct ft8203_ts124qdm_wqxga *ctx = to_ft8203_ts124qdm_wqxga(panel);
 	struct device *dev = &ctx->dsi->dev;
-	struct drm_dsc_picture_parameter_set pps;
 	int ret;
 
 	ret = regulator_bulk_enable(ARRAY_SIZE(ft8203_ts124qdm_wqxga_supplies),
@@ -500,20 +494,6 @@ static int ft8203_ts124qdm_wqxga_prepare(struct drm_panel *panel)
 	ret = ft8203_ts124qdm_wqxga_on(ctx);
 	if (ret < 0) {
 		dev_err(dev, "Failed to initialize panel: %d\n", ret);
-		goto disable_power;
-	}
-
-	drm_dsc_pps_payload_pack(&pps, &ctx->dsc);
-
-	ret = mipi_dsi_picture_parameter_set(ctx->dsi, &pps);
-	if (ret < 0) {
-		dev_err(panel->dev, "failed to transmit PPS: %d\n", ret);
-		goto disable_power;
-	}
-
-	ret = mipi_dsi_compression_mode(ctx->dsi, true);
-	if (ret < 0) {
-		dev_err(dev, "failed to enable compression mode: %d\n", ret);
 		goto disable_power;
 	}
 
@@ -597,6 +577,9 @@ static int ft8203_ts124qdm_wqxga_bl_update_status(struct backlight_device *bl)
 	ft8203_dcs_write_var_seq_long_multi(&dsi_ctx,
 					     MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
 					     pwm >> 4, pwm & 0x0f);
+	ft8203_dcs_write_var_seq_long_multi(&dsi_ctx,
+					     MIPI_DCS_WRITE_CONTROL_DISPLAY,
+					     brightness > 14 ? 0x2c : 0x24);
 
 	return dsi_ctx.accum_err;
 }
@@ -648,7 +631,8 @@ static int ft8203_ts124qdm_wqxga_probe(struct mipi_dsi_device *dsi)
 
 	dsi->lanes = 4;
 	dsi->format = MIPI_DSI_FMT_RGB888;
-	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST |
+	dsi->mode_flags = MIPI_DSI_MODE_VIDEO |
+			  MIPI_DSI_MODE_VIDEO_SYNC_PULSE |
 			  MIPI_DSI_CLOCK_NON_CONTINUOUS | MIPI_DSI_MODE_LPM;
 
 	ctx->panel.prepare_prev_first = true;
@@ -671,7 +655,6 @@ static int ft8203_ts124qdm_wqxga_probe(struct mipi_dsi_device *dsi)
 	ctx->dsc.slice_count = 2;
 	ctx->dsc.bits_per_component = 8;
 	ctx->dsc.bits_per_pixel = 8 << 4;
-	ctx->dsc.block_pred_enable = true;
 
 	ret = mipi_dsi_attach(dsi);
 	if (ret < 0) {

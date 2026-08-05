@@ -10,6 +10,7 @@
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
+#include <dt-bindings/sound/cs35l45.h>
 
 #include "sm7325.dtsi"
 #include "pm7325.dtsi"
@@ -425,6 +426,57 @@
 	firmware-name = "qcom/sm7325/samsung/gts7fewifi/a660_zap.mbn";
 };
 
+&i2c1 {
+	clock-frequency = <400000>;
+	status = "okay";
+
+	cs35l45_l: speaker-amp@30 {
+		compatible = "cirrus,cs35l45";
+		reg = <0x30>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <55 IRQ_TYPE_LEVEL_LOW>;
+		reset-gpios = <&tlmm 6 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&cs35l45_reset_irq>;
+		pinctrl-names = "default";
+
+		cirrus,asp-sdout-hiz-ctrl = <(CS35L45_ASP_TX_HIZ_UNUSED |
+						 CS35L45_ASP_TX_HIZ_DISABLED)>;
+		#sound-dai-cells = <1>;
+
+		cirrus,gpio-ctrl1 {
+			gpio-ctrl = <0x2>;
+		};
+
+		cirrus,gpio-ctrl2 {
+			gpio-ctrl = <0x2>;
+		};
+	};
+
+	cs35l45_r: speaker-amp@31 {
+		compatible = "cirrus,cs35l45";
+		reg = <0x31>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <55 IRQ_TYPE_LEVEL_LOW>;
+		reset-gpios = <&tlmm 6 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&cs35l45_reset_irq>;
+		pinctrl-names = "default";
+
+		cirrus,asp-sdout-hiz-ctrl = <(CS35L45_ASP_TX_HIZ_UNUSED |
+						 CS35L45_ASP_TX_HIZ_DISABLED)>;
+		#sound-dai-cells = <1>;
+
+		cirrus,gpio-ctrl1 {
+			gpio-ctrl = <0x2>;
+		};
+
+		cirrus,gpio-ctrl2 {
+			gpio-ctrl = <0x2>;
+		};
+	};
+};
+
 /*
 &i2c10 {
 	clock-frequency = <400000>;
@@ -737,6 +789,12 @@
 
 	bt_uart_sleep_rxd: bt-uart-sleep-rxd-state {
 		pins = "gpio31";
+		function = "gpio";
+		bias-pull-up;
+	};
+
+	cs35l45_reset_irq: cs35l45-reset-irq-state {
+		pins = "gpio6", "gpio55";
 		function = "gpio";
 		bias-pull-up;
 	};

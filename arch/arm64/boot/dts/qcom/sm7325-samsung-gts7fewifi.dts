@@ -401,6 +401,30 @@
 			   <GCC_WPSS_AHB_CLK>,
 			   <GCC_WPSS_RSCP_CLK>;
 };
+&gpi_dma0 {
+	status = "okay";
+};
+
+&gpi_dma1 {
+	/*
+	 * SM7325 has all 8 GPII instances of the second GPI DMA controller
+	 * wired to QUP1 serial engines.  The default 0x1e mask only covers
+	 * SE9-SE12 and would prevent the USB-C controller (I2C8) from
+	 * getting DMA channels, matching the downstream Samsung
+	 * configuration.
+	 */
+	dma-channel-mask = <0xff>;
+	status = "okay";
+};
+
+&gpu {
+	status = "okay";
+};
+
+&gpu_zap_shader {
+	firmware-name = "qcom/sm7325/samsung/gts7fewifi/a660_zap.mbn";
+};
+
 /*
 &i2c10 {
 	clock-frequency = <400000>;
@@ -442,39 +466,6 @@
 	};
 };
 */
-&pm7325_gpios {
-	key_vol_up: key-vol-up-state {
-		pins = "gpio6";
-		function = "normal";
-		input-enable;
-		bias-pull-up;
-		power-source = <1>;
-	};
-};
-
-&pmk8350_rtc {
-	status = "okay";
-};
-
-&pon_pwrkey {
-	status = "okay";
-	wakeup-source;
-};
-
-&pon_resin {
-	linux,code = <KEY_VOLUMEDOWN>;
-	status = "okay";
-	wakeup-source;
-};
-
-&gpu {
-	status = "okay";
-};
-
-&gpu_zap_shader {
-	firmware-name = "qcom/sm7325/samsung/gts7fewifi/a660_zap.mbn";
-};
-
 &i2c3 {
 	clock-frequency = <400000>;
 	status = "okay";
@@ -501,6 +492,40 @@
 		sm5714_fuel_gauge: fuel-gauge {
 			compatible = "siliconmitus,sm5714-fuel-gauge";
 			power-supplies = <&sm5714_charger>;
+		};
+	};
+};
+
+&i2c6 {
+	clock-frequency = <400000>;
+	status = "okay";
+
+	typec-mux@28 {
+		compatible = "parade,ps5169";
+		reg = <0x28>;
+
+		orientation-switch;
+		retimer-switch;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+
+				ps5169_out: endpoint {
+					remote-endpoint = <&sm5714_typec_ss>;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+
+				ps5169_in: endpoint {
+					remote-endpoint = <&usb_dp_qmpphy_out>;
+				};
+			};
 		};
 	};
 };
@@ -551,40 +576,6 @@
 	};
 };
 
-&i2c6 {
-	clock-frequency = <400000>;
-	status = "okay";
-
-	typec-mux@28 {
-		compatible = "parade,ps5169";
-		reg = <0x28>;
-
-		orientation-switch;
-		retimer-switch;
-
-		ports {
-			#address-cells = <1>;
-			#size-cells = <0>;
-
-			port@0 {
-				reg = <0>;
-
-				ps5169_out: endpoint {
-					remote-endpoint = <&sm5714_typec_ss>;
-				};
-			};
-
-			port@1 {
-				reg = <1>;
-
-				ps5169_in: endpoint {
-					remote-endpoint = <&usb_dp_qmpphy_out>;
-				};
-			};
-		};
-	};
-};
-
 &mdss {
 	status = "okay";
 };
@@ -622,6 +613,39 @@
 	vdds-supply = <&vdd_a_dsi_0_0p9>;
 	status = "okay";
 };
+&pm7325_gpios {
+	key_vol_up: key-vol-up-state {
+		pins = "gpio6";
+		function = "normal";
+		input-enable;
+		bias-pull-up;
+		power-source = <1>;
+	};
+};
+
+&pmk8350_rtc {
+	status = "okay";
+};
+
+&pon_pwrkey {
+	status = "okay";
+	wakeup-source;
+};
+
+&pon_resin {
+	linux,code = <KEY_VOLUMEDOWN>;
+	status = "okay";
+	wakeup-source;
+};
+
+&qupv3_id_0 {
+	status = "okay";
+};
+
+&qupv3_id_1 {
+	status = "okay";
+};
+
 &remoteproc_adsp {
 	firmware-name = "qcom/sm7325/samsung/gts7fewifi/adsp.mbn";
 	status = "okay";
@@ -634,6 +658,19 @@
 
 &remoteproc_wpss {
 	firmware-name = "qcom/sm7325/samsung/gts7fewifi/wpss.mbn";
+	status = "okay";
+};
+
+&sdhc_2 {
+	cd-gpios = <&tlmm 91 GPIO_ACTIVE_LOW>;
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&sdc2_clk &sdc2_cmd &sdc2_data &sdc2_card_det_n>;
+	pinctrl-1 = <&sdc2_clk_sleep &sdc2_cmd_sleep &sdc2_data_sleep
+		     &sdc2_card_det_n>;
+	vmmc-supply = <&vreg_l9c_2p96>;
+	vqmmc-supply = <&vreg_l6c_1p8>;
+	no-sdio;
+	no-mmc;
 	status = "okay";
 };
 
@@ -658,43 +695,6 @@
 		touchscreen-size-x = <1600>;
 		touchscreen-size-y = <2560>;
 	};
-};
-
-&gpi_dma0 {
-	status = "okay";
-};
-
-&gpi_dma1 {
-	/*
-	 * SM7325 has all 8 GPII instances of the second GPI DMA controller
-	 * wired to QUP1 serial engines.  The default 0x1e mask only covers
-	 * SE9-SE12 and would prevent the USB-C controller (I2C8) from
-	 * getting DMA channels, matching the downstream Samsung
-	 * configuration.
-	 */
-	dma-channel-mask = <0xff>;
-	status = "okay";
-};
-
-&qupv3_id_0 {
-	status = "okay";
-};
-
-&qupv3_id_1 {
-	status = "okay";
-};
-
-&sdhc_2 {
-	cd-gpios = <&tlmm 91 GPIO_ACTIVE_LOW>;
-	pinctrl-names = "default", "sleep";
-	pinctrl-0 = <&sdc2_clk &sdc2_cmd &sdc2_data &sdc2_card_det_n>;
-	pinctrl-1 = <&sdc2_clk_sleep &sdc2_cmd_sleep &sdc2_data_sleep
-		     &sdc2_card_det_n>;
-	vmmc-supply = <&vreg_l9c_2p96>;
-	vqmmc-supply = <&vreg_l6c_1p8>;
-	no-sdio;
-	no-mmc;
-	status = "okay";
 };
 
 &tlmm {

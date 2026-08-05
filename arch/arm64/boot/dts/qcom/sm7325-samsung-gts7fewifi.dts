@@ -173,25 +173,6 @@
 			no-map;
 		};
 
-		sec_debug_mem: sec-debug@f0000000 {
-			reg = <0x0 0xf0000000 0x0 0x900000>;
-			no-map;
-		};
-
-		ss_plog_mem: ss-plog@f0900000 {
-			reg = <0x0 0xf0900000 0x0 0x200000>;
-			no-map;
-		};
-
-		ramoops_mem: ramoops@f0b00000 {
-			compatible = "ramoops";
-			reg = <0x0 0xf0b00000 0x0 0x100000>;
-			record-size = <0x40000>;
-			console-size = <0x40000>;
-			ftrace-size = <0x40000>;
-			pmsg-size = <0x40000>;
-		};
-
 		rmtfs_mem: rmtfs@f8500000 {
 			compatible = "qcom,rmtfs-mem";
 			reg = <0x0 0xf8500000 0x0 0x600000>;

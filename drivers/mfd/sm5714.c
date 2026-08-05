@@ -198,6 +198,13 @@ static int sm5714_probe(struct i2c_client *client)
 				dev_warn(dev, "failed to read MUIC device ID: %d\n", ret);
 			else if (device_id != 0x1)
 				dev_warn(dev, "unexpected MUIC device ID %#x\n", device_id);
+
+			ret = regmap_update_bits(sm5714->muic_regmap,
+					 SM5714_MUIC_REG_MANUAL_SW,
+					 SM5714_MUIC_MANUAL_SW_MASK,
+					 SM5714_MUIC_MANUAL_SW_USB);
+			if (ret)
+				dev_warn(dev, "failed to route MUIC to USB: %d\n", ret);
 		}
 	}
 

@@ -426,6 +426,11 @@
 	firmware-name = "qcom/sm7325/samsung/gts7fewifi/a660_zap.mbn";
 };
 
+&venus {
+	firmware-name = "qcom/sm7325/samsung/gts7fewifi/vpu20_1v.mbn";
+	status = "okay";
+};
+
 &i2c1 {
 	clock-frequency = <400000>;
 	status = "okay";
